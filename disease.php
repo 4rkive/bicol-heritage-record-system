@@ -5,30 +5,36 @@ if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);
 }
 
-// Fetch employee records
-$sql = "SELECT * FROM employees ORDER BY employee_id DESC";
-$result = $conn->query($sql);
+// Fetch disease records with optional month/year/branch filter
+$where = [];
+if (!empty($_GET['month'])) $where[] = "MONTH(d.date_detected) = ".intval($_GET['month']);
+if (!empty($_GET['year'])) $where[] = "YEAR(d.date_detected) = ".intval($_GET['year']);
+if (!empty($_GET['branch_id'])) $where[] = "d.branch_id = ".intval($_GET['branch_id']);
 
-// Fetch total salary
-$total_sql = "SELECT SUM(monthly_rate) AS total_salary FROM employees";
-$total_result = $conn->query($total_sql);
-$total_row = $total_result->fetch_assoc();
-$total_salary = $total_row['total_salary'] ?? 0;
+$sql = "SELECT d.*
+        FROM disease_records d";
+if (!empty($where)) $sql .= " WHERE " . implode(" AND ", $where);
+$sql .= " ORDER BY d.date_detected DESC";
+$result = $conn->query($sql);
 
 // Detect current page
 $current_page = basename($_SERVER['PHP_SELF']);
+
+// Save current branch filter so the modal form can use it
+$selected_branch = isset($_GET['branch_id']) ? intval($_GET['branch_id']) : "";
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Employee Records</title>
+  <title>Disease Records</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
   <!-- Font Awesome -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 
   <style>
+    
     :root {
         --green1: #a8d5a2;
         --green2: #81c784;
@@ -47,6 +53,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
     /* Header */
     .header {
         display: flex;
+        justify-content: space-between;
         align-items: center;
         padding: 6px 20px;
         background: var(--green2);
@@ -60,10 +67,10 @@ $current_page = basename($_SERVER['PHP_SELF']);
     .farm-logo img {
         width: 50px;
         height: 50px;
+        object-fit: cover;
         border-radius: 50%;
         border: 2px solid rgba(255,255,255,0.6);
         background: #fff;
-        object-fit: cover;
     }
     .farm-name { font-size: 20px; font-weight: 700; }
 
@@ -94,7 +101,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
         margin-bottom: 20px;
         text-align: left;
     }
-    .nav { flex: 1; padding: 6px; }
+    .nav { flex: 1; padding: 6px 6px 12px; }
     .nav a {
         display: flex;
         align-items: center;
@@ -104,11 +111,13 @@ $current_page = basename($_SERVER['PHP_SELF']);
         padding: 10px 12px;
         margin: 4px 6px;
         border-radius: 8px;
+        transition: background 0.2s ease;
     }
     .nav a.active, .nav a:hover { background: rgba(255, 255, 255, 0.25); }
     .nav-section-title {
-        font-size: 11px; 
-        letter-spacing: 1.5px; 
+        font-size: 11px;
+        letter-spacing: 1.5px;
+        opacity: 0.9;
         margin: 14px 6px 6px;
     }
 
@@ -116,18 +125,26 @@ $current_page = basename($_SERVER['PHP_SELF']);
     .main {
         flex: 1;
         padding: 20px;
-        background: linear-gradient(rgba(177,221,158,0.4), rgba(177,221,158,0.4)),
+        background: linear-gradient(rgba(177, 221, 158, 0.40), rgba(177, 221, 158, 0.40)),
                     url("image/cover.jpg") no-repeat center center;
         background-size: cover;
     }
     .page-title {
         text-align: center;
-        margin: 0 0 15px;
+        margin: 0;
         font-size: 28px;
         font-weight: 700;
+        margin-bottom: 10px;
         color: #18392b;
     }
-
+    .header-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+    .filter-controls form { display: flex; gap: 10px; }
+    .filter-controls select, .filter-controls button { padding: 6px; }
     .add-btn button {
         background: var(--green3);
         color: white;
@@ -164,33 +181,26 @@ $current_page = basename($_SERVER['PHP_SELF']);
     table tr:nth-child(even) { background: #f9f9f9; }
     table tr:hover td { background: #f1f8e9; }
 
-    tfoot td {
-        font-size: 15px;
-        font-weight: bold;
-        color: #2e7d32;
-        border-top: 2px solid #388e3c;
-        background: #f1f8e9;
-    }
-
-    .btn-edit, .btn-delete {
+    .btn-mark {
         padding: 6px 12px;
         border-radius: 6px;
         text-decoration: none;
         font-size: 13px;
         margin: 0 3px;
         display: inline-block;
+        background: #388e3c;
+        color: white;
     }
-    .btn-edit { background: #388e3c; color: white; }
-    .btn-edit:hover { background: #2e7d32; }
-    .btn-delete { background: #d9534f; color: white; }
-    .btn-delete:hover { background: #b52b27; }
+    .btn-mark:hover { background: #2e7d32; }
 
     /* Modal */
     .modal {
         display: none;
         position: fixed;
-        top:0; left:0;
-        width:100%; height:100%;
+        top:0;
+        left:0;
+        width:100%;
+        height:100%;
         background: rgba(0,0,0,0.5);
         justify-content: center;
         align-items: center;
@@ -202,23 +212,36 @@ $current_page = basename($_SERVER['PHP_SELF']);
         display: flex;
         flex-direction: column;
         gap: 12px;
-        width: 350px;
+        width: 320px;
+        box-shadow: 0 6px 16px rgba(0,0,0,0.2);
     }
-    .modal h2 { text-align: center; margin: 0; color: #1b5e20; }
-    .modal input, .modal button, .modal select {
+    .modal h2 {
+        margin-top: 0;
+        text-align: center;
+        color: #1b5e20;
+    }
+    .modal input, .modal button {
         padding: 8px;
         border-radius: 6px;
         border: 1px solid #ccc;
         font-size: 14px;
     }
     .modal button[type="submit"] {
-        background: #4caf50; border: none; color: #fff; cursor: pointer;
+        background: #4caf50;
+        border: none;
+        color: #fff;
+        cursor: pointer;
     }
     .modal button[type="submit"]:hover { background: #2e7d32; }
     .modal button[type="button"] {
-        background: #ccc; border: none; cursor: pointer;
+        background: #ccc;
+        border: none;
+        cursor: pointer;
     }
-    .modal button[type="button"]:hover { background: #aaa; color: #fff; }
+    .modal button[type="button"]:hover {
+        background: #aaa;
+        color: #fff;
+    }
   </style>
 </head>
 <body>
@@ -253,87 +276,96 @@ $current_page = basename($_SERVER['PHP_SELF']);
 
     <!-- Main -->
     <main class="main">
-        <h1 class="page-title">Employee Records</h1>
-        <div class="add-btn">
-            <button onclick="document.getElementById('addForm').style.display='flex'">➕ Add Employee</button>
+        <h1 class="page-title">Disease Records</h1>
+        <div class="header-controls">
+            <div class="filter-controls">
+    <form method="GET">
+        <select name="month" onchange="this.form.submit()">
+            <option value="">All Months</option>
+            <?php 
+                for ($m=1; $m<=12; $m++) {
+                    $selected = (isset($_GET['month']) && $_GET['month']==$m) ? "selected" : "";
+                    echo "<option value='$m' $selected>".date("F", mktime(0,0,0,$m,1))."</option>";
+                }
+            ?>
+        </select>
+        <select name="year" onchange="this.form.submit()">
+            <option value="">All Years</option>
+            <?php 
+                $years = $conn->query("SELECT DISTINCT YEAR(date_detected) as yr FROM disease_records ORDER BY yr DESC");
+                while ($y = $years->fetch_assoc()) {
+                    $selected = (isset($_GET['year']) && $_GET['year']==$y['yr']) ? "selected" : "";
+                    echo "<option value='".$y['yr']."' $selected>".$y['yr']."</option>";
+                }
+            ?>
+        </select>
+        <select name="branch_id" onchange="this.form.submit()">
+            <option value="">All Branches</option>
+            <?php 
+                $branches = $conn->query("SELECT * FROM branches ORDER BY branch_name ASC");
+                while ($b = $branches->fetch_assoc()) {
+                    $selected = (isset($_GET['branch_id']) && $_GET['branch_id']==$b['branch_id']) ? "selected" : "";
+                    echo "<option value='".$b['branch_id']."' $selected>".$b['branch_name']."</option>";
+                }
+            ?>
+        </select>
+    </form>
+</div>
+            <div class="add-btn">
+                <button onclick="openModal()">➕ Add Record</button>
+            </div>
         </div>
 
         <!-- Table -->
         <table>
             <thead>
                 <tr>
-                    <th>No</th>
-                    <th>Name</th>
-                    <th>Area</th>
-                    <th>Position</th>
-                    <th>Address</th>
-                    <th>Date of Birth</th>
-                    <th>Contact</th>
-                    <th>Date Hired</th>
-                    <th>Separation Date</th>
-                    <th>Monthly Rate</th>
-                    <th>Actions</th>
+                    <th>Date Detected</th>
+                    <th>Bloodline</th>
+                    <th>Wing Band</th>
+                    <th>Leg Band</th>
+                    <th>Disease Name</th>
+                    <th>Status</th>
                 </tr>
             </thead>
             <tbody>
                 <?php 
                     while($row = $result->fetch_assoc()) {
                         echo "<tr>
-                            <td>".$row['employee_id']."</td>
-                            <td>".$row['employee_name']."</td>
-                            <td>".$row['area']."</td>
-                            <td>".$row['position']."</td>
-                            <td>".$row['address']."</td>
-                            <td>".$row['date_of_birth']."</td>
-                            <td>".$row['contact_number']."</td>
-                            <td>".$row['date_hired']."</td>
-                            <td>".$row['separation_date']."</td>
-                            <td>".number_format($row['monthly_rate'], 2)."</td>
-                            <td>
-                                <a class='btn-edit' href='edit_employee.php?id=".$row['employee_id']."'>Edit</a>
-                                <a class='btn-delete' href='delete_employee.php?id=".$row['employee_id']."' onclick=\"return confirm('Are you sure you want to delete this record?');\">Delete</a>
-                            </td>
+                            <td>".$row['date_detected']."</td>
+                            <td>".$row['bloodline']."</td>
+                            <td>".$row['wingband']."</td>
+                            <td>".$row['legband']."</td>
+                            <td>".$row['disease_name']."</td>
+                            <td>".$row['status']."</td>
                         </tr>";
                     }
                 ?>
             </tbody>
-
-            <!-- Total Row -->
-            <tfoot>
-                <tr>
-                    <td colspan="9" style="text-align:right;">Total Salary:</td>
-                    <td><?php echo number_format($total_salary, 2); ?></td>
-                    <td></td>
-                </tr>
-            </tfoot>
         </table>
     </main>
 </div>
 
 <!-- Modal -->
 <div id="addForm" class="modal">
-    <form action="insert_employee.php" method="post">
-        <h2>Add Employee</h2>
-        <label>Name:</label>
-        <input type="text" name="employee_name" required>
-        <label>Area:</label>
-        <input type="text" name="area">
-        <label>Position:</label>
-        <input type="text" name="position">
-        <label>Address:</label>
-        <input type="text" name="address">
-        <label>Date of Birth:</label>
-        <input type="date" name="date_of_birth">
-        <label>Contact:</label>
-        <input type="text" name="contact_number">
-        <label>Date Hired:</label>
-        <input type="date" name="date_hired">
-        <label>Separation Date:</label>
-        <input type="date" name="separation_date">
-        <label>Monthly Rate:</label>
-        <input type="number" step="0.01" name="monthly_rate">
+    <form action="insert_disease.php" method="post" onsubmit="return validateBranch()">
+        <h2>Add Disease Record</h2>
+        <label>Date Detected:</label>
+        <input type="date" name="date_detected" required>
+        <label>Bloodline:</label>
+        <input type="text" name="bloodline" required>
+        <label>Wing Band:</label>
+        <input type="text" name="wingband">
+        <label>Leg Band:</label>
+        <input type="text" name="legband">
+        <label>Disease Name:</label>
+        <input type="text" name="disease_name" required>
+
+        <!-- Hidden branch_id based on filter -->
+        <input type="hidden" name="branch_id" value="<?php echo $selected_branch; ?>">
+
         <button type="submit">Save</button>
-        <button type="button" onclick="document.getElementById('addForm').style.display='none'">Cancel</button>
+        <button type="button" onclick="closeModal()">Cancel</button>
     </form>
 </div>
 
@@ -341,6 +373,21 @@ $current_page = basename($_SERVER['PHP_SELF']);
 function toggleSidebar() {
     document.getElementById("sidebar").classList.toggle("collapsed");
 }
+function openModal() {
+    document.getElementById("addForm").style.display = "flex";
+}
+function closeModal() {
+    document.getElementById("addForm").style.display = "none";
+}
+function validateBranch() {
+    const branchId = document.querySelector("input[name='branch_id']").value;
+    if (!branchId) {
+        alert("⚠️ Please filter a branch first before adding a record.");
+        return false;
+    }
+    return true;
+}
 </script>
+
 </body>
 </html>

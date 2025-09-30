@@ -1,8 +1,6 @@
 <?php
-$conn = new mysqli("localhost", "root", "", "bgc");
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
+include 'db.php';
+session_start();
 
 // Get filters
 $month = isset($_GET['month']) ? $_GET['month'] : '';

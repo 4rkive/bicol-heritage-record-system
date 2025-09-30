@@ -1,9 +1,6 @@
 <?php
-// Database connection
-$conn = new mysqli("localhost", "root", "", "bgc");
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
+include 'db.php';
+session_start();
 
 // Get form data
 $sale_date = $_POST['sale_date'];
@@ -12,7 +9,7 @@ $wingbands = $_POST['wingband']; // this is an array
 $amount = $_POST['amount'];
 $remarks = $_POST['remarks'];
 
-// Insert into sale_header
+// Insert into sale table
 $stmt = $conn->prepare("INSERT INTO sale (sale_date, buyer, amount, remarks) VALUES (?, ?, ?, ?)");
 $stmt->bind_param("ssds", $sale_date, $buyer, $amount, $remarks);
 
@@ -26,9 +23,14 @@ if ($stmt->execute()) {
         $stmt_w->execute();
     }
 
-    header("Location: sales.php");
+    // ✅ Only redirect once, no second $stmt->execute()
+    header("Location: sales.php?status=added");
     exit;
 } else {
-    echo "Error: " . $stmt->error;
+    header("Location: sales.php?status=add_error");
+    exit;
 }
+
+$stmt->close();
+$conn->close();
 ?>

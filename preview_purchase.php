@@ -2,33 +2,50 @@
 include 'db.php';
 session_start();
 
-
-// Get filters
+// Get filters from purchase.php
 $month = isset($_GET['month']) ? $_GET['month'] : '';
 $year = isset($_GET['year']) ? $_GET['year'] : '';
+$branch_id = isset($_GET['branch_id']) ? $_GET['branch_id'] : '';
+
+// Fetch branch name
+$branch_name = "All Branches";
+if (!empty($branch_id)) {
+    $branch_sql = "SELECT branch_name FROM branches WHERE branch_id = '$branch_id'";
+    $branch_result = $conn->query($branch_sql);
+    if ($branch_result && $branch_result->num_rows > 0) {
+        $branch_row = $branch_result->fetch_assoc();
+        $branch_name = $branch_row['branch_name'];
+    }
+}
 
 // Base query
-$sql = "SELECT * FROM sale WHERE 1=1";
+$sql = "SELECT * FROM purchase WHERE 1=1";
 if (!empty($month)) {
-    $sql .= " AND MONTH(sale_date) = '$month'";
+    $sql .= " AND MONTH(date) = '$month'";
 }
 if (!empty($year)) {
-    $sql .= " AND YEAR(sale_date) = '$year'";
+    $sql .= " AND YEAR(date) = '$year'";
 }
-$sql .= " ORDER BY sale_id ASC";
+if (!empty($branch_id)) {
+    $sql .= " AND branch_id = '$branch_id'";
+}
+$sql .= " ORDER BY id ASC";
 $result = $conn->query($sql);
 
 // Total sales
-$total_sql = "SELECT SUM(amount) AS total_sales FROM sale WHERE 1=1";
+$total_sql = "SELECT SUM(amount) AS total_amount FROM purchase WHERE 1=1";
 if (!empty($month)) {
-    $total_sql .= " AND MONTH(sale_date) = '$month'";
+    $total_sql .= " AND MONTH(date) = '$month'";
 }
 if (!empty($year)) {
-    $total_sql .= " AND YEAR(sale_date) = '$year'";
+    $total_sql .= " AND YEAR(date) = '$year'";
+}
+if (!empty($branch_id)) {
+    $total_sql .= " AND branch_id = '$branch_id'";
 }
 $total_result = $conn->query($total_sql);
 $total_row = $total_result->fetch_assoc();
-$total_sales = $total_row['total_sales'] ?? 0;
+$total_amount = $total_row['total_amount'] ?? 0;
 ?>
 <!DOCTYPE html>
 <html>
@@ -72,7 +89,6 @@ $total_sales = $total_row['total_sales'] ?? 0;
             font-weight: bold;
             background: #f1f8e9;
         }
-        /* Button container OUTSIDE the document */
         .actions {
             text-align: right;
             margin-top: 20px;
@@ -104,9 +120,9 @@ $total_sales = $total_row['total_sales'] ?? 0;
 <body>
     <div class="document">
 
-        <!-- Month and Farm - Sales Title -->
+        <!-- Month and Branch - Sales Title -->
         <h3>
-            Month: 
+            Month of 
             <?php 
                 if (!empty($month) && !empty($year)) {
                     echo date("F", mktime(0, 0, 0, $month, 10)) . " " . $year;
@@ -119,46 +135,46 @@ $total_sales = $total_row['total_sales'] ?? 0;
                 }
             ?>
         </h3>
-        <h3 style="text-align:center; margin-top:-10px; margin-bottom:20px;">Farm - Sales</h3>
+        <h3 style="text-align:center; margin-top:-10px; margin-bottom:20px;">
+            Feeds – <?php echo $branch_name; ?>
+        </h3>
 
         <!-- Sales Table -->
         <table>
             <thead>
                 <tr>
-                    <th>Sale Date</th>
-                    <th>Buyer</th>
-                    <th>Wingbands</th>
+                    <th>Date</th>
+                    <th>Supplier</th>
+                    <th>Quantity</th>
+                    <th>Unit</th>
+                    <th>Description</th>
                     <th>Amount</th>
-                    <th>Remarks</th>
+                    <th>Receipts</th>
                 </tr>
             </thead>
             <tbody>
                 <?php
                 if ($result->num_rows > 0) {
-                    while ($row = $result->fetch_assoc()) {
-                        $wingbands = "";
-                        $wb_res = $conn->query("SELECT wingband FROM sale_wingbands WHERE sale_id = ".$row['sale_id']);
-                        while ($wb = $wb_res->fetch_assoc()) {
-                            $wingbands .= $wb['wingband'] . "<br>";
-                        }
-
+                    while ($row = $result->fetch_assoc()) 
                         echo "<tr>
-                                <td>".$row['sale_date']."</td>
-                                <td>".$row['buyer']."</td>
-                                <td>".$wingbands."</td>
-                                <td>".number_format($row['amount'],2)."</td>
-                                <td>".$row['remarks']."</td>
+                                <td>".$row['date']."</td>
+                                <td>".$row['supplier']."</td>
+                                <td>".$row['qty']."</td>
+                                <td>".$row['unit']."</td>
+                                <td>".$row['description']."</td>
+                                <td>".number_format($row['amount'])."</td>
+                                <td>".$row['receipt_number']."</td>
                               </tr>";
                     }
-                } else {
-                    echo "<tr><td colspan='5' style='text-align:center;'>No records found</td></tr>";
+                 else {
+                    echo "<tr><td colspan='7' style='text-align:center;'>No records found</td></tr>";
                 }
                 ?>
             </tbody>
             <tfoot>
                 <tr>
-                    <td colspan='3' style='text-align:right;'>Total Sales:</td>
-                    <td><?php echo number_format($total_sales, 2); ?></td>
+                    <td colspan='5x' style='text-align:right;'>Total Amount:</td>
+                    <td><?php echo number_format($total_amount); ?></td>
                     <td></td>
                 </tr>
             </tfoot>
@@ -168,20 +184,19 @@ $total_sales = $total_row['total_sales'] ?? 0;
 
     <!-- Action buttons BELOW the document -->
     <div class="actions">
-        <form method="GET" action="download_sales.php" style="display:inline;">
+        <form method="GET" action="download_purchase.php" style="display:inline;">
             <input type="hidden" name="month" value="<?php echo $month; ?>">
             <input type="hidden" name="year" value="<?php echo $year; ?>">
+            <input type="hidden" name="branch_id" value="<?php echo $branch_id; ?>">
             <button type="submit" class="download-btn">Download</button>
         </form>
-        <button type="button" class="cancel-btn" onclick="window.top.location.href='sales.php'">Cancel</button>
-
+        <button type="button" class="cancel-btn" onclick="window.top.location.href='purchase.php'">Cancel</button>
     </div>
 
     <script>
-        // Optional: also allow ESC key to return to sales.php
         document.addEventListener("keydown", function(e) {
             if (e.key === "Escape") {
-                window.location.href = "sales.php";
+                window.location.href = "purchase.php";
             }
         });
     </script>
